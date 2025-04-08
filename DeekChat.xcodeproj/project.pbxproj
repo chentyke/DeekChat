@@ -400,6 +400,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = DeepChat;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "需要使用麦克风来将您的语音转换为文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "需要使用语音识别功能来将您的语音转换为文字";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -433,6 +434,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = DeepChat;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "需要使用麦克风来将您的语音转换为文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "需要使用语音识别功能来将您的语音转换为文字";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

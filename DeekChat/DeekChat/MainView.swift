@@ -18,7 +18,6 @@ struct MainView: View {
     @State private var showSendButton = false
     @State private var isScrolledToBottom = true
     @FocusState private var isInputActive: Bool
-    @State private var showingAttachmentMenu = false
     @State private var showingImagePicker = false
     @State private var showingCamera = false
     @State private var inputImage: UIImage?
@@ -32,7 +31,6 @@ struct MainView: View {
     @State private var recognitionTask: SFSpeechRecognitionTask?
     @State private var audioEngine = AVAudioEngine()
     @State private var recordingFileName: URL?
-    @State private var showingAttachmentOptions = false
 
     // 添加一个自定义上传选项弹窗的状态
     @State private var showingCustomUploadOptions = false
@@ -364,16 +362,10 @@ struct MainView: View {
             onSendTap: sendMessage,
             onRecordTap: startRecording,
             onCancelTap: cancelGeneration,
-            showAttachmentOptions: $showingAttachmentOptions,
             showingImagePicker: $showingImagePicker,
             inputImage: $inputImage,
             sourceType: $sourceType
         )
-    }
-    
-    // 计算文本高度的辅助函数
-    private func calculateTextHeight() -> CGFloat {
-        return 36 // 始终返回固定高度36
     }
     
     // 获取安全区域内边距
@@ -778,7 +770,6 @@ struct ChatInputBar: View {
     let onRecordTap: () -> Void
     let onCancelTap: () -> Void
     
-    @Binding var showAttachmentOptions: Bool
     @Binding var showingImagePicker: Bool
     @Binding var inputImage: UIImage?
     @Binding var sourceType: UIImagePickerController.SourceType
@@ -816,7 +807,6 @@ struct ChatInputBar: View {
                     AttachmentButton(
                         onTap: onAttachmentTap,
                         isDisabled: isGenerating,
-                        showAttachmentOptions: $showAttachmentOptions,
                         showingImagePicker: $showingImagePicker,
                         inputImage: $inputImage,
                         sourceType: $sourceType
@@ -866,6 +856,7 @@ struct ChatInputBar: View {
                     .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: -3)
             )
             .padding(.horizontal, 8)
+            .padding(.bottom, 20) // 稍微上移输入框位置
         }
         .frame(height: inputAreaHeight + (safeAreaInsets?.bottom ?? 0) + (isRecording ? 64 : 0))
         .background(Color.clear)
@@ -948,7 +939,6 @@ struct AttachmentButton: View {
     let onTap: () -> Void
     let isDisabled: Bool
     
-    @Binding var showAttachmentOptions: Bool
     @Binding var showingImagePicker: Bool
     @Binding var inputImage: UIImage?
     @Binding var sourceType: UIImagePickerController.SourceType
@@ -1125,174 +1115,6 @@ extension View {
 }
 
 // 添加一个自定义上传选项弹窗视图
-struct UploadOptionsView: View {
-    @Binding var isShowing: Bool
-    let onCamera: () -> Void
-    let onPhotoLibrary: () -> Void
-    let onFile: () -> Void
-    
-    // 动画状态
-    @State private var animationAmount: CGFloat = 0
-    
-    var body: some View {
-        ZStack {
-            // 背景遮罩
-            Color.black.opacity(0.3)
-                .edgesIgnoringSafeArea(.all)
-                .opacity(animationAmount)
-                .onTapGesture {
-                    withAnimation(.spring()) {
-                        animationAmount = 0
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            isShowing = false
-                        }
-                    }
-                }
-            
-            // 弹窗内容
-            VStack(spacing: 16) {
-                // 标题
-                Text("添加内容")
-                    .font(.headline)
-                    .padding(.top, 20)
-                
-                // 选项列表
-                VStack(spacing: 0) {
-                    // 相机选项
-                    UploadOptionButton(
-                        icon: "camera.fill",
-                        text: "拍照",
-                        iconColor: .blue,
-                        action: {
-                            onCamera()
-                            withAnimation(.spring()) {
-                                animationAmount = 0
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    isShowing = false
-                                }
-                            }
-                        }
-                    )
-                    
-                    Divider().padding(.horizontal, 16)
-                    
-                    // 相册选项
-                    UploadOptionButton(
-                        icon: "photo.fill",
-                        text: "从相册选择",
-                        iconColor: .green,
-                        action: {
-                            onPhotoLibrary()
-                            withAnimation(.spring()) {
-                                animationAmount = 0
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    isShowing = false
-                                }
-                            }
-                        }
-                    )
-                    
-                    Divider().padding(.horizontal, 16)
-                    
-                    // 文件选项
-                    UploadOptionButton(
-                        icon: "doc.fill",
-                        text: "上传文件",
-                        iconColor: .orange,
-                        action: {
-                            onFile()
-                            withAnimation(.spring()) {
-                                animationAmount = 0
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    isShowing = false
-                                }
-                            }
-                        }
-                    )
-                }
-                .background(Color(.systemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                
-                // 取消按钮
-                Button(action: {
-                    withAnimation(.spring()) {
-                        animationAmount = 0
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            isShowing = false
-                        }
-                    }
-                }) {
-                    Text("取消")
-                        .fontWeight(.medium)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color(.systemBackground))
-                        .foregroundColor(.blue)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            .padding(.horizontal, 24)
-            .opacity(animationAmount)
-            .scaleEffect(0.9 + (0.1 * animationAmount))
-        }
-        .onAppear {
-            withAnimation(.spring()) {
-                animationAmount = 1
-            }
-        }
-    }
-}
-
-// 上传选项按钮组件
-struct UploadOptionButton: View {
-    let icon: String
-    let text: String
-    let iconColor: Color
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(iconColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                
-                Text(text)
-                    .font(.system(size: 16))
-                    .foregroundColor(.primary)
-                
-                Spacer()
-                
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// 添加位置偏好键
-struct ViewPositionAnchor: Equatable {
-    let viewId: String
-    let anchor: Anchor<CGRect>
-}
-
-struct ViewPositionKey: PreferenceKey {
-    static var defaultValue: [ViewPositionAnchor] = []
-    
-    static func reduce(value: inout [ViewPositionAnchor], nextValue: () -> [ViewPositionAnchor]) {
-        value.append(contentsOf: nextValue())
-    }
-}
-
-// 浮动菜单视图，从按钮处延展
 struct FloatingMenuView: View {
     @Binding var isShowing: Bool
     let attachPoint: CGRect
@@ -1302,19 +1124,16 @@ struct FloatingMenuView: View {
     
     // 动画状态
     @State private var animationAmount: CGFloat = 0
+    @State private var itemAnimations: [Bool] = [false, false, false]
     
     var body: some View {
         ZStack(alignment: .topLeading) {
             // 轻触任意位置关闭菜单的透明层
-            Color.clear
+            Color.black.opacity(0.2 * animationAmount)
+                .edgesIgnoringSafeArea(.all)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    withAnimation(.spring()) {
-                        animationAmount = 0
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            isShowing = false
-                        }
-                    }
+                    closeMenu()
                 }
             
             // 悬浮菜单内容
@@ -1328,16 +1147,15 @@ struct FloatingMenuView: View {
                         iconColor: .blue,
                         action: {
                             onCamera()
-                            withAnimation(.spring()) {
-                                animationAmount = 0
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    isShowing = false
-                                }
-                            }
-                        }
+                            closeMenu()
+                        },
+                        isActive: itemAnimations[0]
                     )
+                    .offset(x: itemAnimations[0] ? 0 : -20)
+                    .opacity(itemAnimations[0] ? 1 : 0)
                     
                     Divider()
+                        .padding(.horizontal, 6)
                     
                     // 相册选项
                     FloatingMenuButton(
@@ -1346,16 +1164,15 @@ struct FloatingMenuView: View {
                         iconColor: .green,
                         action: {
                             onPhotoLibrary()
-                            withAnimation(.spring()) {
-                                animationAmount = 0
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    isShowing = false
-                                }
-                            }
-                        }
+                            closeMenu()
+                        },
+                        isActive: itemAnimations[1]
                     )
+                    .offset(x: itemAnimations[1] ? 0 : -20)
+                    .opacity(itemAnimations[1] ? 1 : 0)
                     
                     Divider()
+                        .padding(.horizontal, 6)
                     
                     // 文件选项
                     FloatingMenuButton(
@@ -1364,61 +1181,144 @@ struct FloatingMenuView: View {
                         iconColor: .orange,
                         action: {
                             onFile()
-                            withAnimation(.spring()) {
-                                animationAmount = 0
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    isShowing = false
-                                }
-                            }
-                        }
+                            closeMenu()
+                        },
+                        isActive: itemAnimations[2]
                     )
+                    .offset(x: itemAnimations[2] ? 0 : -20)
+                    .opacity(itemAnimations[2] ? 1 : 0)
                 }
             }
             .frame(width: 180)
             .background(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 16)
                     .fill(Color(.systemBackground))
-                    .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
+                    .shadow(color: Color.black.opacity(0.25), radius: 15, x: 0, y: 5)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray.opacity(0.1), lineWidth: 1)
+                    )
             )
             .opacity(animationAmount)
-            .scaleEffect(0.9 + (0.1 * animationAmount), anchor: .bottomLeading)
+            .scaleEffect(0.8 + (0.2 * animationAmount), anchor: .bottomLeading)
             .offset(x: max(10, attachPoint.minX - 10), y: attachPoint.minY - 150) // 位置调整，悬浮在按钮上方
+            // 添加箭头指示
+            .overlay(
+                Image(systemName: "arrowtriangle.down.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Color(.systemBackground))
+                    .offset(x: 16, y: 8)
+                    .rotationEffect(.degrees(180))
+                    .opacity(animationAmount)
+                    , alignment: .bottomLeading
+            )
         }
         .edgesIgnoringSafeArea(.all)
         .onAppear {
-            withAnimation(.spring()) {
+            // 主容器动画
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                 animationAmount = 1
             }
+            
+            // 错开时间依次显示各个选项
+            for i in 0..<itemAnimations.count {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1 + Double(i) * 0.1) {
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                        itemAnimations[i] = true
+                    }
+                }
+            }
+        }
+    }
+    
+    private func closeMenu() {
+        // 反向动画：先淡出选项
+        for i in 0..<itemAnimations.count {
+            withAnimation(.easeOut(duration: 0.1)) {
+                itemAnimations[i] = false
+            }
+        }
+        
+        // 然后关闭整个菜单
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            animationAmount = 0
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isShowing = false
         }
     }
 }
 
-// 浮动菜单按钮
+// 增强FloatingMenuButton的动效和视觉样式
 struct FloatingMenuButton: View {
     let icon: String
     let text: String
     let iconColor: Color
     let action: () -> Void
+    var isActive: Bool = true
+    
+    @State private var isPressed: Bool = false
     
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                isPressed = true
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    isPressed = false
+                }
+                action()
+            }
+        }) {
             HStack(spacing: 12) {
+                // 图标
                 Image(systemName: icon)
                     .font(.system(size: 16))
                     .foregroundColor(.white)
-                    .frame(width: 28, height: 28)
-                    .background(iconColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .frame(width: 32, height: 32)
+                    .background(
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(iconColor)
+                            
+                            // 添加点击时的涟漪效果
+                            if isPressed {
+                                Circle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .scaleEffect(isPressed ? 1.8 : 0)
+                                    .opacity(isPressed ? 0 : 0.3)
+                            }
+                        }
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .shadow(color: iconColor.opacity(0.3), radius: 3, x: 0, y: 2)
                 
+                // 文字
                 Text(text)
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
                 
                 Spacer()
+                
+                // 右侧箭头图标，轻微动画
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+                    .offset(x: isPressed ? 3 : 0)
+                    .animation(.spring(response: 0.3), value: isPressed)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.clear)
+            )
             .contentShape(Rectangle())
+            .scaleEffect(isPressed ? 0.98 : 1)
+            .opacity(isActive ? 1 : 0.6)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -1522,5 +1422,19 @@ struct InputTextField: View {
             }
         }
         return Color.clear
+    }
+}
+
+// 添加位置偏好键
+struct ViewPositionAnchor: Equatable {
+    let viewId: String
+    let anchor: Anchor<CGRect>
+}
+
+struct ViewPositionKey: PreferenceKey {
+    static var defaultValue: [ViewPositionAnchor] = []
+    
+    static func reduce(value: inout [ViewPositionAnchor], nextValue: () -> [ViewPositionAnchor]) {
+        value.append(contentsOf: nextValue())
     }
 } 
