@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "生成聊天软件图标.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
