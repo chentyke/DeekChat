@@ -4,13 +4,14 @@ import SwiftUI
 struct MarkdownContentView: View {
     let content: String // 原始Markdown文本
     let parsedContent: AttributedString // 已解析的AttributedString
-    let backgroundBrightness: Double // 背景亮度
-    
+
+    // 固定背景亮度值
+    private let backgroundBrightness: Double = 1.0
+
     var body: some View {
         MarkdownRenderer(
             content: content,
-            parsedContent: parsedContent,
-            backgroundBrightness: backgroundBrightness
+            parsedContent: parsedContent
         )
     }
 }
@@ -20,33 +21,24 @@ struct MarkdownContentView: View {
 struct MarkdownRenderer: View {
     let content: String
     let parsedContent: AttributedString
-    let backgroundBrightness: Double
-    
+    let backgroundBrightness: Double = 1.0
+
     // 私有状态
     @State private var contentSections: [ContentSection] = []
     @State private var hasTable = false
-    
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // 背景
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(.systemGray6).opacity(backgroundBrightness))
-            
-            // 内容
-            VStack(alignment: .leading, spacing: 6) {
-                if hasTable {
-                    // 有表格时使用自定义渲染
-                    ForEach(contentSections) { section in
-                        sectionView(for: section)
-                    }
-                } else {
-                    // 无表格时使用系统渲染
-                    standardTextView
+        // 内容
+        VStack(alignment: .leading, spacing: 6) {
+            if hasTable {
+                // 有表格时使用自定义渲染
+                ForEach(contentSections) { section in
+                    sectionView(for: section)
                 }
+            } else {
+                // 无表格时使用系统渲染
+                standardTextView
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 20)
         }
         .onAppear {
             // 分析内容并预处理
@@ -56,7 +48,7 @@ struct MarkdownRenderer: View {
             }
         }
     }
-    
+
     // 标准文本视图
     private var standardTextView: some View {
         Text(parsedContent)
@@ -65,7 +57,7 @@ struct MarkdownRenderer: View {
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
     }
-    
+
     // 根据内容类型选择对应的视图
     @ViewBuilder
     private func sectionView(for section: ContentSection) -> some View {
@@ -88,20 +80,20 @@ struct MarkdownRenderer: View {
 /// 表格视图组件
 struct TableBlockView: View {
     let tableContent: String
-    
+
     var body: some View {
         // 处理表格数据
         let tableData = TableProcessor.processTableLines(tableContent)
         let rows = tableData.rows
         let hasHeader = tableData.hasHeader
         let columnWidths = TableProcessor.calculateColumnWidths(rows: rows)
-        
+
         // 构建表格视图
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
                 // 构建行
                 rowView(row: row, rowIndex: rowIndex, hasHeader: hasHeader, columnWidths: columnWidths)
-                
+
                 // 行间分隔线
                 Divider()
                     .background(Color.gray.opacity(0.3))
@@ -114,7 +106,7 @@ struct TableBlockView: View {
                 .stroke(Color.gray.opacity(0.3), lineWidth: 1)
         )
     }
-    
+
     // 构建表格行视图
     private func rowView(row: [String], rowIndex: Int, hasHeader: Bool, columnWidths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
@@ -132,7 +124,7 @@ struct TableBlockView: View {
         }
         .frame(height: 40)
     }
-    
+
     // 构建单元格视图
     private func cellView(text: String, isHeader: Bool, width: CGFloat, isLastColumn: Bool) -> some View {
         HStack(spacing: 0) {
@@ -142,7 +134,7 @@ struct TableBlockView: View {
                 width: width, isHeader: isHeader
             )
             .frame(width: width)
-            
+
             // 列间分隔线
             if !isLastColumn {
                 Divider()
@@ -157,7 +149,7 @@ struct TableCellView: View {
     let text: String
     let width: CGFloat
     let isHeader: Bool
-    
+
     var body: some View {
         Text(text)
             .font(isHeader ? .headline : .body)
@@ -167,7 +159,7 @@ struct TableCellView: View {
             .frame(width: width, alignment: .leading)
             .background(cellBackground)
     }
-    
+
     private var cellBackground: Color {
         if isHeader {
             return Color(UIColor.systemGray5).opacity(0.8)
@@ -180,10 +172,10 @@ struct TableCellView: View {
 /// 代码块视图组件
 struct CodeBlockView: View {
     let codeContent: String
-    
+
     var body: some View {
         let language = CodeAnalyzer.detectLanguage(codeContent)
-        
+
         return VStack(alignment: .leading, spacing: 0) {
             if !language.isEmpty {
                 Text(language)
@@ -195,7 +187,7 @@ struct CodeBlockView: View {
                     .padding(.top, 8)
                     .padding(.leading, 10)
             }
-            
+
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(codeContent)
                     .font(.system(size: 15, design: .monospaced))
@@ -221,7 +213,7 @@ struct CodeBlockView: View {
 /// 文本块视图组件
 struct TextBlockView: View {
     let textContent: String
-    
+
     var body: some View {
         Text(formattedText)
             .font(.system(size: 17))
@@ -229,7 +221,7 @@ struct TextBlockView: View {
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
     }
-    
+
     // 格式化文本
     private var formattedText: AttributedString {
         do {
@@ -256,13 +248,13 @@ struct MarkdownAnalyzer {
     static func hasTableContent(in text: String) -> Bool {
         let lines = text.components(separatedBy: .newlines)
         guard lines.count >= 2 else { return false }
-        
+
         var tableLineCount = 0
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.contains("|") && (
-                trimmed.contains("| ") || 
-                trimmed.contains(" |") || 
+                trimmed.contains("| ") ||
+                trimmed.contains(" |") ||
                 (trimmed.hasPrefix("|") && trimmed.hasSuffix("|"))
             ) {
                 tableLineCount += 1
@@ -273,22 +265,22 @@ struct MarkdownAnalyzer {
         }
         return false
     }
-    
+
     /// 解析内容区块，包括普通文本、代码块和表格
     static func parseContentSections(_ content: String) -> [ContentSection] {
         var sections: [ContentSection] = []
         var currentText = ""
-        
+
         let lines = content.components(separatedBy: .newlines)
         var i = 0
         var inTable = false
         var inCodeBlock = false
         var tableLines: [String] = []
-        
+
         while i < lines.count {
             let line = lines[i]
             let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            
+
             // 检查是否是代码块分隔符
             if trimmedLine.hasPrefix("```") {
                 // 结束当前文本块
@@ -300,13 +292,13 @@ struct MarkdownAnalyzer {
                     ))
                     currentText = ""
                 }
-                
+
                 // 切换代码块状态
                 inCodeBlock = !inCodeBlock
                 i += 1
                 continue
             }
-            
+
             // 如果在代码块内，直接添加内容
             if inCodeBlock {
                 if currentText.isEmpty {
@@ -317,14 +309,14 @@ struct MarkdownAnalyzer {
                 i += 1
                 continue
             }
-            
+
             // 检查是否是表格行
             let isTableLine = line.contains("|") && (
-                trimmedLine.contains("| ") || 
-                trimmedLine.contains(" |") || 
+                trimmedLine.contains("| ") ||
+                trimmedLine.contains(" |") ||
                 (trimmedLine.hasPrefix("|") && trimmedLine.hasSuffix("|"))
             )
-            
+
             if isTableLine {
                 // 如果之前有普通文本，保存它
                 if !currentText.isEmpty {
@@ -335,7 +327,7 @@ struct MarkdownAnalyzer {
                     ))
                     currentText = ""
                 }
-                
+
                 // 开始收集表格行
                 if !inTable {
                     inTable = true
@@ -352,11 +344,11 @@ struct MarkdownAnalyzer {
                         isCodeBlock: false,
                         content: tableLines.joined(separator: "\n")
                     ))
-                    
+
                     // 重置表格状态
                     tableLines = []
                     inTable = false
-                    
+
                     // 开始新的文本内容
                     currentText = line
                 } else {
@@ -368,10 +360,10 @@ struct MarkdownAnalyzer {
                     }
                 }
             }
-            
+
             i += 1
         }
-        
+
         // 处理文档末尾内容
         if inTable && !tableLines.isEmpty {
             // 表格结束
@@ -395,7 +387,7 @@ struct MarkdownAnalyzer {
                 content: currentText
             ))
         }
-        
+
         return sections
     }
 }
@@ -407,22 +399,22 @@ struct TableProcessor {
         let lines = content.components(separatedBy: .newlines)
         var rows: [[String]] = []
         var hasHeader = false
-        
+
         // 检查分隔行
         if lines.count > 1 {
             let secondLine = lines[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if secondLine.contains("-") || secondLine.contains("=") || 
+            if secondLine.contains("-") || secondLine.contains("=") ||
                (secondLine.contains("|") && secondLine.contains("-")) {
                 hasHeader = true
             }
         }
-        
+
         for i in 0..<lines.count {
             if i == 1 && hasHeader { continue } // 跳过分隔行
-            
+
             let line = lines[i].trimmingCharacters(in: .whitespacesAndNewlines)
             if !line.contains("|") { continue }
-            
+
             // 解析行中的单元格
             var processedRow = line
             if processedRow.hasPrefix("|") {
@@ -431,27 +423,27 @@ struct TableProcessor {
             if processedRow.hasSuffix("|") {
                 processedRow = String(processedRow.dropLast())
             }
-            
+
             // 处理单元格内容
             let cells = processedRow.components(separatedBy: "|")
-                .map { 
+                .map {
                     let cell = $0.trimmingCharacters(in: .whitespacesAndNewlines)
                     return cell.replacingOccurrences(of: "\\*\\*(.+?)\\*\\*", with: "$1", options: .regularExpression)
                 }
-            
+
             rows.append(cells)
         }
-        
+
         return (rows, hasHeader)
     }
-    
+
     /// 计算列宽
     static func calculateColumnWidths(rows: [[String]]) -> [CGFloat] {
         let columnCount = rows.map { $0.count }.max() ?? 0
         guard columnCount > 0 else { return [] }
-        
+
         var widths = Array(repeating: CGFloat(40), count: columnCount)
-        
+
         for row in rows {
             for (colIndex, cell) in row.enumerated() {
                 if colIndex < columnCount {
@@ -460,10 +452,10 @@ struct TableProcessor {
                 }
             }
         }
-        
+
         return widths
     }
-    
+
     /// 估算文本宽度
     private static func estimateTextWidth(_ text: String) -> CGFloat {
         let font = UIFont.systemFont(ofSize: 15)
@@ -487,4 +479,4 @@ struct CodeAnalyzer {
         if firstLine.lowercased().contains("csharp") || firstLine.lowercased().contains("c#") { return "C#" }
         return ""
     }
-} 
+}

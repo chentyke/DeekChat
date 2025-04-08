@@ -11,7 +11,7 @@ struct SettingsView: View {
     @AppStorage("headingLevel2FontSize") private var headingLevel2FontSize: Double = 22
     @AppStorage("headingLevel3FontSize") private var headingLevel3FontSize: Double = 20
     @AppStorage("dividerFontSize") private var dividerFontSize: Double = 8
-    @AppStorage("backgroundBrightness") private var backgroundBrightness: Double = 1.0
+
     @State private var showingSaved = false
     @State private var balance: BalanceResponse?
     @State private var isLoadingBalance = false
@@ -104,17 +104,6 @@ struct SettingsView: View {
                 }
             }
 
-            Section(header: Text("亮度设置")) {
-                VStack(alignment: .leading) {
-                    Text("背景亮度: \(Int(backgroundBrightness * 100))%")
-                    Slider(value: $backgroundBrightness, in: 0.8...1.0, step: 0.01)
-                        .onChange(of: backgroundBrightness) { _ in
-                            UserDefaults.standard.set(backgroundBrightness, forKey: "backgroundBrightness")
-                            showingSaved = true
-                            saveSettings()
-                        }
-                }
-            }
 
             Section(header: Text("欢迎消息")) {
                 TextField("自定义欢迎消息", text: $welcomeMessage)
@@ -185,4 +174,4 @@ struct SettingsView: View {
         MarkdownParser.Settings.headingLevel3FontSize = CGFloat(headingLevel3FontSize)
         MarkdownParser.Settings.dividerFontSize = CGFloat(dividerFontSize)
     }
-} 
+}

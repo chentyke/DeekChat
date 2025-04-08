@@ -22,7 +22,7 @@ struct MainView: View {
     @State private var showingCamera = false
     @State private var inputImage: UIImage?
     @State private var sourceType: UIImagePickerController.SourceType = .photoLibrary
-    
+
     // 添加录音相关状态
     @State private var isRecording = false
     @State private var audioRecorder: AVAudioRecorder?
@@ -38,13 +38,19 @@ struct MainView: View {
     // 添加保存按钮位置的状态
     @State private var attachmentButtonPosition: CGRect = .zero
 
+    // 添加状态变量来跟踪当前的拖动手势
+    @GestureState private var dragOffset: CGFloat = 0
+
+    // 添加一个状态变量来跟踪侧边栏的当前位置，用于平滑动画
+    @State private var sidebarOffset: CGFloat = -270
+
     var body: some View {
         NavigationView {
             ZStack {
                 // 背景色
                 Color(.systemBackground)
                     .ignoresSafeArea()
-                
+
                 // 主聊天界面
                 VStack(spacing: 0) {
                     // 顶部导航栏
@@ -54,42 +60,120 @@ struct MainView: View {
 
                     // 聊天内容区域
                     chatContentArea
-                    
+
                     // 底部输入框 - 更现代的设计
                     inputBar
                 }
+                // 添加从左向右滑动的手势识别器
+                .gesture(
+                    DragGesture()
+                        .updating($dragOffset) { value, state, _ in
+                            // 只处理从左边缘开始的滑动，且仅当侧边栏关闭时
+                            if !showingSidebar && value.startLocation.x < 20 && value.translation.width > 0 {
+                                // 限制最大偏移量为270，防止超出侧边栏宽度
+                                state = min(value.translation.width, 270)
+                            }
+                        }
+                        .onEnded { value in
+                            // 如果滑动足够远，则显示侧边栏，且仅当侧边栏关闭时
+                            if !showingSidebar && value.startLocation.x < 20 && value.translation.width > 0 {
+                                // 计算拖动结束时的位置
+                                let currentPosition = sidebarOffset + value.translation.width
+
+                                // 如果拖动超过一半或者超过50点，则打开侧边栏
+                                let shouldOpen = currentPosition > -135 || value.translation.width > 50
+
+                                // 更新状态并使用动画从当前位置平滑过渡
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
+                                    showingSidebar = shouldOpen
+                                    sidebarOffset = shouldOpen ? 0 : -270
+                                }
+                            }
+                        }
+                )
 
                 // 侧边栏覆盖层和侧边栏
                 sidebarLayer
-                
+
                 // 错误提示覆盖层
                 errorOverlay
-                
+
                 // 滚动到底部浮动按钮
                 scrollToBottomButton
 
+                // 左边缘滑动指示器，当侧边栏关闭时显示
+                if !showingSidebar {
+                    HStack(spacing: 0) {
+                        // 左边缘指示器
+                        Rectangle()
+                            .fill(Color.blue.opacity(0.2))
+                            .frame(width: 5)
+                            .opacity(dragOffset > 0 ? 1.0 : 0.0) // 当拖动时显示
+
+                        Spacer()
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false) // 不拦截点击事件
+                }
+
                 // 修改自定义上传弹窗显示方式
                 if showingCustomUploadOptions {
-                    FloatingMenuView(
+                    // 创建一个引用变量来存储FloatingMenuView
+                    let menuView = FloatingMenuView(
                         isShowing: $showingCustomUploadOptions,
                         attachPoint: attachmentButtonPosition,
                         onCamera: {
-                            sourceType = .camera
-                            showingImagePicker = true
+                            // 在主线程上安全地检查相机
+                            DispatchQueue.main.async {
+                                // 检查相机是否可用
+                                if ImagePicker.isCameraAvailable() {
+                                    // 检查相机权限
+                                    ImagePicker.checkCameraPermission { granted in
+                                        DispatchQueue.main.async {
+                                            if granted {
+                                                sourceType = .camera
+                                                showingImagePicker = true
+                                            } else {
+                                                showError("需要相机权限才能拍照")
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    showError("设备不支持相机功能")
+                                }
+                            }
                         },
                         onPhotoLibrary: {
-                            sourceType = .photoLibrary
-                            showingImagePicker = true
+                            // 安全地设置状态
+                            DispatchQueue.main.async {
+                                sourceType = .photoLibrary
+                                showingImagePicker = true
+                            }
                         },
                         onFile: {
-                            showingFileImporter = true
+                            // 安全地设置状态
+                            DispatchQueue.main.async {
+                                showingFileImporter = true
+                            }
+                        },
+                        onClose: {
+                            // 菜单关闭后的回调
+                            // 这里可以添加额外的处理逻辑
                         }
                     )
-                    .transition(.opacity)
-                    .zIndex(100) // 确保显示在最上层
+
+                    // 显示菜单
+                    menuView
+                        .transition(.opacity)
+                        .zIndex(100) // 确保显示在最上层
                 }
             }
             .environmentObject(viewModel)
+            .onChange(of: inputImage) { newImage in
+                if let image = newImage {
+                    handleImageSelected(image)
+                }
+            }
             .fileImporter(
                 isPresented: $showingFileImporter,
                 allowedContentTypes: [.item],
@@ -122,15 +206,17 @@ struct MainView: View {
             }
         }
     }
-    
+
     // MARK: - UI Components
-    
+
     private var topNavigationBar: some View {
         HStack(spacing: 16) {
             // 侧边栏按钮
             Button(action: {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
                     showingSidebar.toggle()
+                    // 同时更新侧边栏偏移量
+                    sidebarOffset = showingSidebar ? 0 : -270
                 }
             }) {
                 Image(systemName: "line.3.horizontal")
@@ -180,7 +266,7 @@ struct MainView: View {
                 .ignoresSafeArea(.all, edges: .top)
         )
     }
-    
+
     private var titleEditingMode: some View {
         HStack(spacing: 8) {
             TextField("对话名称", text: $editingTitle)
@@ -227,7 +313,7 @@ struct MainView: View {
         }
         .frame(height: 38)
     }
-    
+
     private var titleDisplayMode: some View {
         Button(action: {
             editingTitle = viewModel.currentChat?.title ?? "新对话"
@@ -239,7 +325,7 @@ struct MainView: View {
                 Text(viewModel.currentChat?.title ?? "新对话")
                     .font(.system(size: 17, weight: .medium))
                     .foregroundColor(.primary)
-                
+
                 Image(systemName: "pencil")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.gray)
@@ -255,7 +341,7 @@ struct MainView: View {
         .buttonStyle(ScaleButtonStyle())
         .transition(.scale)
     }
-    
+
     private var chatContentArea: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -263,7 +349,7 @@ struct MainView: View {
                     if let chat = viewModel.currentChat {
                         // 时间标签
                         timeLabel
-                        
+
                         // 消息列表
                         ForEach(chat.messages) { message in
                             MessageBubble(
@@ -271,6 +357,7 @@ struct MainView: View {
                                 isUser: message.isUser,
                                 isComplete: message.isComplete,
                                 isSystemPrompt: message.isSystemPrompt,
+                                reasoningContent: message.reasoningContent,
                                 onRegenerate: {
                                     if message.isUser {
                                         viewModel.resendUserMessage(message.content)
@@ -285,7 +372,7 @@ struct MainView: View {
                                 removal: .opacity
                             ))
                         }
-                        
+
                         // 底部留白
                         Color.clear
                             .frame(height: 20)
@@ -331,7 +418,7 @@ struct MainView: View {
             )
         }
     }
-    
+
     private var timeLabel: some View {
         HStack {
             Spacer()
@@ -349,7 +436,7 @@ struct MainView: View {
         .padding(.top, 16)
         .padding(.bottom, 8)
     }
-    
+
     // 底部输入栏
     private var inputBar: some View {
         ChatInputBar(
@@ -367,7 +454,7 @@ struct MainView: View {
             sourceType: $sourceType
         )
     }
-    
+
     // 获取安全区域内边距
     private var safeAreaInsets: UIEdgeInsets {
         let keyWindow = UIApplication.shared.connectedScenes
@@ -376,45 +463,89 @@ struct MainView: View {
             .first?.windows
             .filter { $0.isKeyWindow }
             .first
-            
+
         return keyWindow?.safeAreaInsets ?? .zero
     }
-    
+
     private var sidebarLayer: some View {
         ZStack {
-            // 侧边栏覆盖层
-            if showingSidebar {
-                Color.black
-                    .opacity(0.2)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                            showingSidebar = false
-                        }
+            // 侧边栏覆盖层 - 使用透明度而不是条件渲染
+            Color.black
+                .opacity(showingSidebar ? 0.2 : 0)
+                .ignoresSafeArea()
+                .animation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1), value: showingSidebar)
+                .allowsHitTesting(showingSidebar) // 只在显示时响应点击
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
+                        showingSidebar = false
+                        sidebarOffset = -270 // 同时更新侧边栏偏移量
                     }
-            }
+                }
+
+            // 监听侧边栏状态变化，更新偏移量
+            Color.clear
+                .frame(width: 0, height: 0)
+                .onChange(of: showingSidebar) { newValue in
+                    // 当侧边栏状态变化时，更新偏移量
+                    // 注意：这里不使用动画，因为动画应该在触发状态变化的地方应用
+                    sidebarOffset = newValue ? 0 : -270
+                }
 
             // 侧边栏
             GeometryReader { geometry in
                 HStack(spacing: 0) {
-                    SidebarView()
-                        .environmentObject(viewModel)
-                        .frame(width: 270)
-                        .background(
-                            Rectangle()
-                                .fill(Color(.systemBackground))
-                                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 2, y: 0)
-                        )
-                        .offset(x: showingSidebar ? 0 : -270)
+                    // 侧边栏容器
+                    ZStack {
+                        // 侧边栏背景
+                        Rectangle()
+                            .fill(Color(.systemBackground))
+                            .shadow(color: Color.black.opacity(0.1), radius: 10, x: 2, y: 0)
+                            .ignoresSafeArea()
+
+                        // 侧边栏内容 - 使用id确保不会重新创建
+                        SidebarView()
+                            .environmentObject(viewModel)
+                            .id("sidebarContent") // 添加固定id防止重新创建
+                    }
+                    .frame(width: 270)
+                    // 使用sidebarOffset状态变量和当前拖动偏移量来计算侧边栏位置
+                    .offset(x: sidebarOffset + dragOffset)
+                    // 添加从右向左滑动关闭的手势
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                // 在拖动过程中不做额外处理，偏移量已经在dragOffset中跟踪
+                            }
+                            .onEnded { value in
+                                // 计算拖动结束时的位置
+                                let currentPosition = sidebarOffset + value.translation.width
+
+                                // 根据当前位置和拖动方向决定是否应该打开或关闭侧边栏
+                                let shouldOpen: Bool
+                                if showingSidebar {
+                                    // 如果侧边栏已经打开，只有向左拖动超过一半才关闭
+                                    shouldOpen = currentPosition > -135
+                                } else {
+                                    // 如果侧边栏关闭，只有向右拖动超过一半才打开
+                                    shouldOpen = currentPosition > -135
+                                }
+
+                                // 更新状态并使用动画从当前位置平滑过渡
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
+                                    showingSidebar = shouldOpen
+                                    sidebarOffset = shouldOpen ? 0 : -270
+                                }
+                            }
+                    )
 
                     Spacer()
                 }
+                // 将动画仅应用于偏移属性，而不是整个视图
+                .animation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1), value: sidebarOffset)
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: showingSidebar)
         }
     }
-    
+
     private var errorOverlay: some View {
         Group {
             if let error = errorMessage {
@@ -435,14 +566,14 @@ struct MainView: View {
             }
         }
     }
-    
+
     private var scrollToBottomButton: some View {
         VStack {
             Spacer()
-            
+
             HStack {
                 Spacer()
-                
+
                 if !isScrolledToBottom {
                     Button(action: {
                         withAnimation {
@@ -466,9 +597,9 @@ struct MainView: View {
             }
         }
     }
-    
+
     // MARK: - 录音与语音识别功能
-    
+
     // 请求录音权限
     private func requestRecordingPermission() {
         AVAudioSession.sharedInstance().requestRecordPermission { granted in
@@ -479,7 +610,7 @@ struct MainView: View {
             }
         }
     }
-    
+
     // 请求语音识别权限
     private func requestSpeechRecognitionPermission() {
         SFSpeechRecognizer.requestAuthorization { status in
@@ -490,7 +621,7 @@ struct MainView: View {
             }
         }
     }
-    
+
     // 开始录音
     private func startRecording() {
         // 确保没有正在进行的录音
@@ -498,46 +629,46 @@ struct MainView: View {
             stopRecording()
             return
         }
-        
+
         // 检查麦克风权限和语音识别权限
         checkPermissionsAndStartRecording()
     }
-    
+
     // 检查权限并开始录音
     private func checkPermissionsAndStartRecording() {
         // 检查麦克风权限
         AVAudioSession.sharedInstance().requestRecordPermission { granted in
-            
+
             if !granted {
                 DispatchQueue.main.async {
                     self.showError("需要麦克风权限才能使用语音输入功能")
                 }
                 return
             }
-            
+
             // 检查语音识别权限
             SFSpeechRecognizer.requestAuthorization { status in
-                
+
                 DispatchQueue.main.async {
                     if status != .authorized {
                         self.showError("需要语音识别权限才能使用语音输入功能")
                         return
                     }
-                    
+
                     // 权限都已授予，开始录音
                     self.startRecordingWithPermission()
                 }
             }
         }
     }
-    
+
     // 已获得权限后开始录音
     private func startRecordingWithPermission() {
         // 设置为录音状态
         withAnimation {
             isRecording = true
         }
-        
+
         // 设置音频会话
         let audioSession = AVAudioSession.sharedInstance()
         do {
@@ -547,36 +678,36 @@ struct MainView: View {
             showError("无法设置音频会话: \(error.localizedDescription)")
             return
         }
-        
+
         // 检查语音识别器是否可用
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
             showError("语音识别服务当前不可用")
             isRecording = false
             return
         }
-        
+
         // 设置语音识别
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        
+
         guard let recognitionRequest = recognitionRequest else {
             showError("无法创建语音识别请求")
             isRecording = false
             return
         }
-        
+
         // 配置实时听写
         recognitionRequest.shouldReportPartialResults = true
-        
+
         // 开始语音识别
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { result, error in
-            
+
             if let result = result {
                 // 更新语音识别结果到输入框
                 DispatchQueue.main.async {
                     self.messageText = result.bestTranscription.formattedString
                 }
             }
-            
+
             if error != nil {
                 // 停止录音
                 DispatchQueue.main.async {
@@ -584,15 +715,15 @@ struct MainView: View {
                 }
             }
         }
-        
+
         // 准备音频引擎
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
-        
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             self.recognitionRequest?.append(buffer)
         }
-        
+
         // 开始音频引擎
         do {
             audioEngine.prepare()
@@ -603,24 +734,24 @@ struct MainView: View {
             return
         }
     }
-    
+
     // 停止录音
     private func stopRecording() {
         // 停止音频引擎
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
-        
+
         // 结束语音识别请求
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
-        
+
         // 重置录音状态
         withAnimation {
             isRecording = false
         }
-        
+
         // 显示发送按钮（如果识别出了文本）
         if !messageText.isEmpty {
             withAnimation(.spring(response: 0.4)) {
@@ -628,19 +759,19 @@ struct MainView: View {
             }
         }
     }
-    
+
     // MARK: - Actions
-    
+
     private func sendMessage() {
         guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        
+
         // 如果正在录音，先停止录音
         if isRecording {
             stopRecording()
         }
-        
+
         let messageToSend = messageText  // 保存消息内容
-        
+
         // 使用Task以避免UI更新之间的竞争条件
         Task {
             // 在主线程上更新UI
@@ -650,7 +781,7 @@ struct MainView: View {
                     showSendButton = false
                 }
             }
-            
+
             do {
                 try await viewModel.sendMessage(messageToSend)
                 // 发送消息后自动滚动到底部
@@ -671,16 +802,16 @@ struct MainView: View {
     private func handleImageSelected(_ image: UIImage) {
         // 重置图片选择状态
         inputImage = nil
-        
+
         // 保存图片到临时文件
         guard let imageData = image.jpegData(compressionQuality: 0.7) else {
             showError("图片处理失败")
             return
         }
-        
+
         let fileName = "image_\(Date().timeIntervalSince1970).jpg"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        
+
         do {
             try imageData.write(to: tempURL)
             // 处理图片文件的上传或发送
@@ -693,24 +824,24 @@ struct MainView: View {
     private func handleFileImport(url: URL) {
         // 处理文件导入逻辑
         print("导入的文件路径: \(url.path)")
-        
+
         // 获取文件名
         let fileName = url.lastPathComponent
-        
+
         // 判断文件类型
         let isImage = ["jpg", "jpeg", "png", "gif", "heic"].contains(url.pathExtension.lowercased())
         let isPDF = url.pathExtension.lowercased() == "pdf"
-        
+
         // 简单文件类型图标
         let fileIcon = isImage ? "📷" : (isPDF ? "📄" : "📎")
-        
+
         // 构建文件消息
         let fileMessage = "\(fileIcon) 文件: \(fileName)\n正在处理文件，请稍候..."
-        
+
         // 将文件信息作为消息发送
         messageText = fileMessage
         sendMessage()
-        
+
         // 实际实现中，这里应该上传文件到服务器或进行其他处理
         // 例如：uploadFileToServer(url: url)
     }
@@ -731,10 +862,10 @@ struct MainView: View {
     private func cancelGeneration() {
         Task {
             await viewModel.cancelMessageGeneration()
-            
+
             // 添加一个短暂延迟后更新UI状态
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1秒
-            
+
             // 更新UI状态，允许用户立即发送新消息
             await MainActor.run {
                 showError("已停止生成")
@@ -764,27 +895,27 @@ struct ChatInputBar: View {
     @Binding var isRecording: Bool
     @Binding var showSendButton: Bool
     let isGenerating: Bool
-    
+
     let onAttachmentTap: () -> Void
     let onSendTap: () -> Void
     let onRecordTap: () -> Void
     let onCancelTap: () -> Void
-    
+
     @Binding var showingImagePicker: Bool
     @Binding var inputImage: UIImage?
     @Binding var sourceType: UIImagePickerController.SourceType
-    
+
     // 读取安全区域但不响应其变化
     @Environment(\.safeAreaInsets) private var safeAreaInsets
-    
+
     // 状态变量跟踪输入区域高度
     @State private var inputAreaHeight: CGFloat = 56
-    
+
     // 固定尺寸常量
     private let minInputBarHeight: CGFloat = 56
     private let maxInputBarHeight: CGFloat = 140
     private let cornerRadius: CGFloat = 25
-    
+
     var body: some View {
         // 使用ZStack而不是GeometryReader避免尺寸自适应
         ZStack(alignment: .bottom) {
@@ -798,7 +929,7 @@ struct ChatInputBar: View {
                 .frame(height: 64) // 固定录音指示器高度
                 .offset(y: -inputAreaHeight - (safeAreaInsets?.bottom ?? 0))
             }
-            
+
             // 主输入栏
             VStack(spacing: 0) {
                 // 内容区域
@@ -811,7 +942,7 @@ struct ChatInputBar: View {
                         inputImage: $inputImage,
                         sourceType: $sourceType
                     )
-                    
+
                     // 中间输入框
                     InputTextField(
                         text: $messageText,
@@ -830,7 +961,7 @@ struct ChatInputBar: View {
                             }
                         }
                     )
-                    
+
                     // 右侧按钮区域
                     ActionButton(
                         isGenerating: isGenerating,
@@ -844,7 +975,7 @@ struct ChatInputBar: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .frame(height: inputAreaHeight) // 根据输入内容动态调整高度
-                
+
                 // 底部安全区域填充
                 Rectangle()
                     .fill(Color.clear)
@@ -863,7 +994,7 @@ struct ChatInputBar: View {
         .ignoresSafeArea(.keyboard) // 忽略键盘防止自动调整
         .animation(.easeInOut(duration: 0.2), value: inputAreaHeight)
     }
-    
+
     // 录音指示器
     private var recordingIndicator: some View {
         VStack(spacing: 10) {
@@ -881,14 +1012,14 @@ struct ChatInputBar: View {
                         )
                         .shadow(color: Color.blue.opacity(0.3), radius: 2, x: 0, y: 0)
                 }
-                
+
                 Text("正在录音...")
                     .font(.subheadline)
                     .foregroundColor(.primary)
                     .padding(.leading, 10)
-                
+
                 Spacer()
-                
+
                 // 改进停止按钮样式
                 Button(action: onRecordTap) {
                     Label("停止", systemImage: "stop.circle.fill")
@@ -905,7 +1036,7 @@ struct ChatInputBar: View {
                 .buttonStyle(ScaleButtonStyle())
                 .contentShape(Capsule())
             }
-            
+
             // 添加动态计时器
             HStack {
                 Image(systemName: "mic.fill")
@@ -913,9 +1044,9 @@ struct ChatInputBar: View {
                     .foregroundColor(.blue)
                     .padding(6)
                     .background(Circle().fill(Color.blue.opacity(0.1)))
-                
+
                 Spacer()
-                
+
                 // 在实际实现中，这里可以添加一个计时器显示录音时长
                 Text("点击停止结束录音")
                     .font(.caption)
@@ -938,11 +1069,11 @@ struct ChatInputBar: View {
 struct AttachmentButton: View {
     let onTap: () -> Void
     let isDisabled: Bool
-    
+
     @Binding var showingImagePicker: Bool
     @Binding var inputImage: UIImage?
     @Binding var sourceType: UIImagePickerController.SourceType
-    
+
     var body: some View {
         Button(action: onTap) {
             Image(systemName: "plus.circle.fill")
@@ -953,8 +1084,35 @@ struct AttachmentButton: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
         .sheet(isPresented: $showingImagePicker) {
-            ImagePicker(image: $inputImage, sourceType: sourceType)
-                .ignoresSafeArea()
+            // 在显示ImagePicker前检查相机可用性
+            Group {
+                if sourceType == .camera && !ImagePicker.isCameraAvailable() {
+                    // 如果相机不可用，显示错误提示
+                    VStack {
+                        Text("设备不支持相机功能")
+                            .font(.headline)
+                            .padding()
+
+                        Button("使用相册代替") {
+                            DispatchQueue.main.async {
+                                sourceType = .photoLibrary
+                            }
+                        }
+                        .padding()
+
+                        Button("取消") {
+                            DispatchQueue.main.async {
+                                showingImagePicker = false
+                            }
+                        }
+                        .padding()
+                    }
+                    .padding()
+                } else {
+                    ImagePicker(image: $inputImage, sourceType: sourceType)
+                        .ignoresSafeArea()
+                }
+            }
         }
         // 传递位置给弹窗
         .anchorPreference(key: ViewPositionKey.self, value: .bounds) { anchor in
@@ -971,7 +1129,7 @@ struct ActionButton: View {
     let onSendTap: () -> Void
     let onRecordTap: () -> Void
     let onCancelTap: () -> Void
-    
+
     var body: some View {
         Group {
             if isGenerating {
@@ -1029,7 +1187,7 @@ extension View {
                 guard let viewHost = Introspection.findViewHost(from: introspectionView) else {
                     return nil
                 }
-                
+
                 // 查找TextEditor的UITextView
                 for subview in viewHost.subviews {
                     if let textView = Introspection.findTextView(from: subview) {
@@ -1056,18 +1214,18 @@ struct Introspection {
         }
         return nil
     }
-    
+
     static func findTextView(from view: UIView) -> UITextView? {
         if let textView = view as? UITextView {
             return textView
         }
-        
+
         for subview in view.subviews {
             if let textView = findTextView(from: subview) {
                 return textView
             }
         }
-        
+
         return nil
     }
 }
@@ -1076,28 +1234,28 @@ struct Introspection {
 struct UIKitIntrospectionView<ViewType: UIView>: UIViewRepresentable {
     let selector: (UIView) -> ViewType?
     let customize: (ViewType) -> Void
-    
+
     init(selector: @escaping (UIView) -> ViewType?, customize: @escaping (ViewType) -> Void) {
         self.selector = selector
         self.customize = customize
     }
-    
+
     func makeUIView(context: Context) -> IntrospectionUIView {
         let view = IntrospectionUIView()
         view.selector = selector
         view.customize = customize
         return view
     }
-    
+
     func updateUIView(_ uiView: IntrospectionUIView, context: Context) {
         uiView.selector = selector
         uiView.customize = customize
     }
-    
+
     class IntrospectionUIView: UIView {
         var selector: ((UIView) -> ViewType?)?
         var customize: ((ViewType) -> Void)?
-        
+
         override func didMoveToWindow() {
             super.didMoveToWindow()
             guard let selector = selector, let customize = customize else { return }
@@ -1121,11 +1279,14 @@ struct FloatingMenuView: View {
     let onCamera: () -> Void
     let onPhotoLibrary: () -> Void
     let onFile: () -> Void
-    
+
+    // 添加一个关闭菜单的回调函数
+    var onClose: (() -> Void)? = nil
+
     // 动画状态
     @State private var animationAmount: CGFloat = 0
     @State private var itemAnimations: [Bool] = [false, false, false]
-    
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             // 轻触任意位置关闭菜单的透明层
@@ -1133,9 +1294,10 @@ struct FloatingMenuView: View {
                 .edgesIgnoringSafeArea(.all)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    closeMenu()
+                    // 调用关闭菜单方法
+                    self.closeMenu()
                 }
-            
+
             // 悬浮菜单内容
             VStack(spacing: 0) {
                 // 选项列表
@@ -1147,16 +1309,15 @@ struct FloatingMenuView: View {
                         iconColor: .blue,
                         action: {
                             onCamera()
-                            closeMenu()
                         },
                         isActive: itemAnimations[0]
                     )
                     .offset(x: itemAnimations[0] ? 0 : -20)
                     .opacity(itemAnimations[0] ? 1 : 0)
-                    
+
                     Divider()
                         .padding(.horizontal, 6)
-                    
+
                     // 相册选项
                     FloatingMenuButton(
                         icon: "photo.fill",
@@ -1170,10 +1331,10 @@ struct FloatingMenuView: View {
                     )
                     .offset(x: itemAnimations[1] ? 0 : -20)
                     .opacity(itemAnimations[1] ? 1 : 0)
-                    
+
                     Divider()
                         .padding(.horizontal, 6)
-                    
+
                     // 文件选项
                     FloatingMenuButton(
                         icon: "doc.fill",
@@ -1219,7 +1380,7 @@ struct FloatingMenuView: View {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                 animationAmount = 1
             }
-            
+
             // 错开时间依次显示各个选项
             for i in 0..<itemAnimations.count {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1 + Double(i) * 0.1) {
@@ -1230,22 +1391,29 @@ struct FloatingMenuView: View {
             }
         }
     }
-    
-    private func closeMenu() {
-        // 反向动画：先淡出选项
-        for i in 0..<itemAnimations.count {
-            withAnimation(.easeOut(duration: 0.1)) {
-                itemAnimations[i] = false
+
+    func closeMenu() {
+        // 安全地关闭菜单，确保在主线程上执行
+        DispatchQueue.main.async {
+            // 反向动画：先淡出选项
+            for i in 0..<self.itemAnimations.count {
+                withAnimation(.easeOut(duration: 0.1)) {
+                    self.itemAnimations[i] = false
+                }
             }
-        }
-        
-        // 然后关闭整个菜单
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            animationAmount = 0
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            isShowing = false
+
+            // 然后关闭整个菜单
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                self.animationAmount = 0
+            }
+
+            // 延迟设置状态变量
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.isShowing = false
+
+                // 如果有关闭回调，调用它
+                self.onClose?()
+            }
         }
     }
 }
@@ -1257,20 +1425,25 @@ struct FloatingMenuButton: View {
     let iconColor: Color
     let action: () -> Void
     var isActive: Bool = true
-    
+
     @State private var isPressed: Bool = false
-    
+
     var body: some View {
         Button(action: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                isPressed = true
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // 安全地处理按钮点击
+            DispatchQueue.main.async {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    isPressed = false
+                    self.isPressed = true
                 }
-                action()
+
+                // 延迟执行动作
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        self.isPressed = false
+                    }
+                    // 在主线程上执行操作
+                    self.action()
+                }
             }
         }) {
             HStack(spacing: 12) {
@@ -1283,7 +1456,7 @@ struct FloatingMenuButton: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(iconColor)
-                            
+
                             // 添加点击时的涟漪效果
                             if isPressed {
                                 Circle()
@@ -1295,14 +1468,14 @@ struct FloatingMenuButton: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .shadow(color: iconColor.opacity(0.3), radius: 3, x: 0, y: 2)
-                
+
                 // 文字
                 Text(text)
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                
+
                 Spacer()
-                
+
                 // 右侧箭头图标，轻微动画
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12))
@@ -1331,23 +1504,137 @@ struct InputTextField: View {
     @FocusState.Binding var isInputActive: Bool
     let isGenerating: Bool
     @Binding var showSendButton: Bool
-    
+
     // 添加状态变量跟踪文本高度
     @State private var textHeight: CGFloat = 36
-    
+
     // 最大高度限制
     private let minHeight: CGFloat = 36
     private let maxHeight: CGFloat = 120
-    
-    // UITextView代理包装器，用于禁用输入辅助栏
-    class TextViewDelegate: NSObject, UITextViewDelegate {
+
+    // UITextView代理包装器，用于禁用输入辅助栏和控制滚动行为
+    class TextViewDelegate: NSObject, UITextViewDelegate, UIScrollViewDelegate {
         static let shared = TextViewDelegate()
-        
+
+        // 当前关联的TextView
+        weak var textView: UITextView?
+
+        // 跟踪文本行数
+        private var lineCount: Int = 1
+        // 最大行数限制，超过这个数量才允许滚动
+        private let maxLinesBeforeScroll: Int = 4
+        // 记录是否已经禁用滚动
+        private var scrollDisabled = false
+
         override init() {
             super.init()
         }
+
+        // 设置关联的TextView并初始化
+        func setup(with textView: UITextView) {
+            self.textView = textView
+            updateScrollState(in: textView)
+        }
+
+        // 计算文本行数
+        func calculateLineCount(in textView: UITextView) -> Int {
+            let text = textView.text ?? ""
+            if text.isEmpty { return 1 }
+
+            // 防止宽度为0或负数
+            let width = max(10, textView.bounds.width)
+            let size = CGSize(width: width, height: .infinity)
+
+            // 使用安全的字体
+            let font = textView.font ?? UIFont.systemFont(ofSize: 16)
+
+            let textHeight = text.boundingRect(
+                with: size,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font],
+                context: nil
+            ).height
+
+            // 防止高度为NaN或负数
+            let safeTextHeight = textHeight.isNaN ? 16 : max(1, textHeight)
+
+            // 根据文本高度和行高度估算行数
+            let lineHeight = font.lineHeight > 0 ? font.lineHeight : 16
+            return Int(ceil(safeTextHeight / lineHeight))
+        }
+
+        // 更新滚动状态
+        func updateScrollState(in textView: UITextView) {
+            // 防止在无效状态下调用
+            guard textView.window != nil else { return }
+
+            // 计算当前行数
+            lineCount = calculateLineCount(in: textView)
+
+            // 根据行数设置是否允许滚动
+            let shouldEnableScroll = lineCount > maxLinesBeforeScroll
+
+            // 更新滚动状态
+            textView.isScrollEnabled = shouldEnableScroll
+            scrollDisabled = !shouldEnableScroll
+
+            // 如果禁用滚动，确保内容位置重置
+            if !shouldEnableScroll {
+                // 安全设置内容偏移
+                DispatchQueue.main.async {
+                    textView.contentOffset = .zero
+                }
+            }
+        }
+
+        // MARK: - UITextViewDelegate
+
+        // 当文本变化时调用
+        func textViewDidChange(_ textView: UITextView) {
+            updateScrollState(in: textView)
+        }
+
+        // 当开始编辑时调用
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            updateScrollState(in: textView)
+        }
+
+        // MARK: - UIScrollViewDelegate
+
+        // 当滚动时调用
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            // 如果已经禁用滚动，强制重置内容位置
+            if scrollDisabled {
+                // 安全地设置内容偏移
+                DispatchQueue.main.async {
+                    scrollView.contentOffset = .zero
+                }
+            }
+        }
+
+        // 当将要开始拖动时调用
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            // 如果已经禁用滚动，阻止拖动
+            if scrollDisabled {
+                // 安全地设置内容偏移
+                DispatchQueue.main.async {
+                    scrollView.contentOffset = .zero
+                }
+            }
+        }
+
+        // 当拖动结束时调用
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            // 如果已经禁用滚动，确保内容位置重置
+            if scrollDisabled {
+                // 安全地设置内容偏移
+                DispatchQueue.main.async {
+                    scrollView.contentOffset = .zero
+                }
+            }
+        }
     }
-    
+
     var body: some View {
         ZStack(alignment: .leading) {
             // 占位文本 - 仅在文本为空时显示，调整垂直位置
@@ -1357,7 +1644,7 @@ struct InputTextField: View {
                     .padding(.leading, 16)
                     .padding(.top, 2) // 调整垂直位置，使其与输入文本对齐
             }
-            
+
             // 使用TextEditor实现多行输入，调整内边距
             TextEditor(text: $text)
                 .scrollContentBackground(.hidden)
@@ -1376,22 +1663,50 @@ struct InputTextField: View {
                     withAnimation(.spring(response: 0.4)) {
                         showSendButton = !newValue.isEmpty
                     }
+
+                    // 当文本变化时，手动触发滚动状态更新
+                    DispatchQueue.main.async {
+                        if let textView = TextViewDelegate.shared.textView {
+                            TextViewDelegate.shared.textViewDidChange(textView)
+                        }
+                    }
                 }
                 .focused($isInputActive)
                 .disabled(isGenerating)
                 .opacity(isGenerating ? 0.6 : 1.0)
                 .font(.system(size: 16)) // 确保字体大小一致
-                // 通过UIViewRepresentable禁用输入辅助栏
+                // 通过UIViewRepresentable禁用输入辅助栏并控制滚动行为
                 .introspectTextView { textView in
-                    // 禁用输入辅助栏
-                    textView.inputAssistantItem.leadingBarButtonGroups = []
-                    textView.inputAssistantItem.trailingBarButtonGroups = []
-                    
-                    // 设置代理以禁用其他系统行为
-                    textView.delegate = TextViewDelegate.shared
-                    
-                    // 移除额外的内边距，保持TextEditor内容紧凑
-                    textView.textContainerInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+                    // 防止在无效状态下调用
+                    guard textView.window != nil else { return }
+
+                    // 在主线程上安全设置属性
+                    DispatchQueue.main.async {
+                        // 禁用输入辅助栏
+                        textView.inputAssistantItem.leadingBarButtonGroups = []
+                        textView.inputAssistantItem.trailingBarButtonGroups = []
+
+                        // 移除额外的内边距，保持TextEditor内容紧凑
+                        textView.textContainerInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+
+                        // 设置代理以控制滚动行为
+                        let delegate = TextViewDelegate.shared
+                        textView.delegate = delegate
+
+                        // 使用我们的setup方法初始化
+                        delegate.setup(with: textView)
+
+                        // 添加额外的滚动控制
+                        // 禁用滚动弹性，避免滚动反弹
+                        textView.bounces = false
+                        textView.alwaysBounceVertical = false
+
+                        // 禁用滑动惯性，避免滑动后继续滚动
+                        textView.decelerationRate = .fast
+
+                        // 禁用滑动指示器
+                        textView.showsVerticalScrollIndicator = false
+                    }
                 }
         }
         .frame(height: max(minHeight, min(textHeight, maxHeight)))
@@ -1402,22 +1717,45 @@ struct InputTextField: View {
                 .stroke(Color(.systemGray4), lineWidth: 0.5)
         )
     }
-    
+
     // 计算文本高度的函数
     private func calculateHeight(_ geometry: GeometryProxy) -> Color {
         DispatchQueue.main.async {
+            // 防止宽度为0或负数
+            let width = max(10, geometry.size.width)
+            let size = CGSize(width: width, height: .infinity)
+
             // 估算文本高度
-            let size = CGSize(width: geometry.size.width, height: .infinity)
-            let estimatedHeight = text.isEmpty ? minHeight : text.boundingRect(
-                with: size,
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: UIFont.systemFont(ofSize: 16)],
-                context: nil
-            ).height + 16 // 减少内边距，使文本更紧凑
-            
-            if abs(self.textHeight - estimatedHeight) > 1 {
+            let rawHeight: CGFloat
+            if text.isEmpty {
+                rawHeight = minHeight
+            } else {
+                rawHeight = text.boundingRect(
+                    with: size,
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: UIFont.systemFont(ofSize: 16)],
+                    context: nil
+                ).height + 16 // 减少内边距，使文本更紧凑
+            }
+
+            // 防止NaN和负值
+            let estimatedHeight = rawHeight.isNaN ? minHeight : max(minHeight, rawHeight)
+
+            // 检查高度是否变化
+            let currentHeight = self.textHeight
+            let heightChanged = !currentHeight.isNaN && !estimatedHeight.isNaN && abs(currentHeight - estimatedHeight) > 1
+
+            if heightChanged {
+                // 安全更新高度
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.textHeight = estimatedHeight
+                }
+
+                // 当高度变化时，手动触发滚动状态更新
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if let textView = TextViewDelegate.shared.textView {
+                        TextViewDelegate.shared.updateScrollState(in: textView)
+                    }
                 }
             }
         }
@@ -1433,8 +1771,8 @@ struct ViewPositionAnchor: Equatable {
 
 struct ViewPositionKey: PreferenceKey {
     static var defaultValue: [ViewPositionAnchor] = []
-    
+
     static func reduce(value: inout [ViewPositionAnchor], nextValue: () -> [ViewPositionAnchor]) {
         value.append(contentsOf: nextValue())
     }
-} 
+}
